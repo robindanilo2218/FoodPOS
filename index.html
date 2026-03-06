@@ -68,7 +68,7 @@
             { id: '5', name: 'Refresco Cola', price: 1.50, category: 'Bebidas', stock: 80, color: 'bg-red-100 text-red-800 border-red-200' },
         ];
 
-        // Formatear milisegundos a minutos y segundos
+        // Formatear milisegundos a minutos y segundos para SMED
         const formatTimeDiff = (start, end) => {
             if (!start || !end) return '-';
             const diffMs = new Date(end) - new Date(start);
@@ -80,15 +80,16 @@
 
         function App() {
             // Estados Globales
-            const [activeTab, setActiveTab] = useState('pos');
-            const [menuItems, setMenuItems] = useLocalStorage('rest_menu_final', DEFAULT_MENU);
-            const [orders, setOrders] = useLocalStorage('rest_orders_final', []);
-            const [expenses, setExpenses] = useLocalStorage('rest_expenses_final', []);
+            const [activeTab, setActiveTab] = useState('pos'); // pos, kitchen, checkout, admin
+            const [menuItems, setMenuItems] = useLocalStorage('rest_menu_v8', DEFAULT_MENU);
+            const [orders, setOrders] = useLocalStorage('rest_orders_v8', []);
+            const [expenses, setExpenses] = useLocalStorage('rest_expenses_v8', []);
             
             // Estados POS
             const [cart, setCart] = useState([]);
             const [cartStartTime, setCartStartTime] = useState(null);
             const [currentTable, setCurrentTable] = useState('');
+            const [currentGuests, setCurrentGuests] = useState(''); // Pax
             const [currentClient, setCurrentClient] = useState('');
             const [activeCategory, setActiveCategory] = useState('Todos');
             const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
@@ -112,7 +113,7 @@
                 document.getElementById('manifest-link').href = URL.createObjectURL(manifestBlob);
             }, []);
 
-            // Lógica POS
+            // --- Lógica POS ---
             const categories = ['Todos', ...new Set(menuItems.map(item => item.category))];
             const filteredMenu = activeCategory === 'Todos' ? menuItems : menuItems.filter(item => item.category === activeCategory);
 
@@ -140,7 +141,7 @@
             const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             const totalItemsInCart = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-            const handleCheckout = () => {
+            const handleSendToKitchen = () => {
                 if (cart.length === 0) return alert('El carrito está vacío');
                 if (!currentTable && !currentClient) return alert('Ingrese Mesa o Nombre del Cliente');
 
@@ -148,6 +149,7 @@
                 const newOrder = {
                     id: Math.random().toString(36).substr(2, 9),
                     table: currentTable || 'Llevar',
+                    guests: parseInt(currentGuests) || 1, // Guardamos los Pax
                     client: currentClient || 'Sin Nombre',
                     items: cart,
                     total: cartTotal,
@@ -165,6 +167,7 @@
 
                 setOrders([newOrder, ...orders]);
                 
+                // Descontar inventario
                 const updatedMenu = [...menuItems];
                 cart.forEach(cartItem => {
                     const menuIdx = updatedMenu.findIndex(m => m.id === cartItem.id);
@@ -175,14 +178,15 @@
                 setCart([]);
                 setCartStartTime(null);
                 setCurrentTable('');
+                setCurrentGuests('');
                 setCurrentClient('');
                 setIsMobileCartOpen(false);
                 alert('¡Pedido enviado a cocina!');
             };
 
-            // Lógica Cocina y Finanzas
+            // --- Lógica de Pedidos (KDS y Caja) ---
             const activeOrders = orders.filter(o => o.status !== 'delivered' && o.status !== 'paid');
-            const deliveredOrders = orders.filter(o => o.status === 'delivered');
+            const pendingPaymentOrders = orders.filter(o => o.status !== 'paid'); // Todas las activas para la Caja
             const completedOrders = orders.filter(o => o.status === 'paid');
             
             const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0);
@@ -202,6 +206,14 @@
                 }));
             };
 
+            // --- Lógica de Pago (Checkout) ---
+            const processPayment = (orderId) => {
+                if(window.confirm("¿Confirmar cobro de esta cuenta?")) {
+                    updateOrderStatus(orderId, 'paid');
+                }
+            };
+
+            // --- Lógica Inventario y Menú ---
             const handleStockUpdate = (id, delta) => {
                 setMenuItems(prev => prev.map(item => {
                     if (item.id === id) return { ...item, stock: Math.max(0, item.stock + delta) };
@@ -209,14 +221,13 @@
                 }));
             };
 
-            // Lógica Menú
             const handleAddProduct = (e) => {
                 e.preventDefault();
                 if (!newItem.name || !newItem.price || !newItem.category) return;
                 
                 const inputVal = parseFloat(newItem.price);
                 const finalPriceUSD = newItem.inputCurrency === 'Q' ? inputVal / EXCHANGE_RATE : inputVal;
-                const colors = ['bg-purple-100 text-purple-800 border-purple-200', 'bg-teal-100 text-teal-800 border-teal-200', 'bg-indigo-100 text-indigo-800 border-indigo-200'];
+                const colors = ['bg-purple-100 text-purple-800 border-purple-200', 'bg-teal-100 text-teal-800 border-teal-200', 'bg-indigo-100 text-indigo-800 border-indigo-200', 'bg-rose-100 text-rose-800 border-rose-200'];
 
                 setMenuItems([...menuItems, {
                     id: Math.random().toString(36).substr(2, 9),
@@ -236,7 +247,7 @@
                 }
             };
 
-            // Lógica Gastos
+            // --- Lógica Gastos ---
             const handleAddExpense = (e) => {
                 e.preventDefault();
                 if (!newExpense.description || !newExpense.amount) return;
@@ -252,14 +263,12 @@
                     date: new Date().toISOString()
                 }, ...expenses]);
                 
-                setNewExpense({ description: '', amount: '', inputCurrency: 'Q', category: 'Servicios Básicos (Luz, Agua, Gas)' });
+                setNewExpense({ description: '', amount: '', inputCurrency: 'Q', category: 'Servicios Básicos' });
                 alert("¡Gasto registrado exitosamente!");
             };
 
             const handleDeleteExpense = (id) => {
-                if(window.confirm("¿Eliminar este gasto?")) {
-                    setExpenses(prev => prev.filter(e => e.id !== id));
-                }
+                if(window.confirm("¿Eliminar este gasto?")) setExpenses(prev => prev.filter(e => e.id !== id));
             };
 
             const getStatusColor = (status) => {
@@ -267,36 +276,46 @@
                     case 'pending': return 'bg-red-50 border-red-200 text-red-800';
                     case 'preparing': return 'bg-yellow-50 border-yellow-200 text-yellow-800';
                     case 'ready': return 'bg-green-50 border-green-200 text-green-800';
+                    case 'delivered': return 'bg-blue-50 border-blue-200 text-blue-800';
                     default: return 'bg-gray-50 border-gray-200 text-gray-800';
                 }
             };
 
             return (
                 <div className="h-screen flex flex-col bg-white text-gray-900 overflow-hidden selection:bg-orange-200">
+                    
+                    {/* ==================== NAVBAR PRINCIPAL ==================== */}
                     <nav className="h-16 bg-gray-900 text-white flex items-center justify-between px-3 sm:px-6 shadow-md z-30 shrink-0">
                         <div className="flex items-center gap-2 sm:gap-3">
                             <div className="bg-orange-600 p-1.5 sm:p-2 rounded-lg"><i className="fas fa-utensils"></i></div>
-                            <h1 className="text-lg sm:text-xl font-black tracking-tight">Food<span className="text-orange-500">POS</span></h1>
+                            <h1 className="text-lg sm:text-xl font-black tracking-tight hidden sm:block">Food<span className="text-orange-500">POS</span></h1>
                         </div>
                         
-                        <div className="flex bg-gray-800 p-1 rounded-lg">
-                            <button onClick={() => setActiveTab('pos')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium transition-all ${activeTab === 'pos' ? 'bg-orange-600 shadow-md' : 'text-gray-300'}`}>
-                                <i className="fas fa-tablet-screen-button"></i> <span className="hidden sm:inline">Mesas</span>
+                        <div className="flex bg-gray-800 p-1 rounded-lg overflow-x-auto">
+                            <button onClick={() => setActiveTab('pos')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium transition-all whitespace-nowrap ${activeTab === 'pos' ? 'bg-orange-600 shadow-md' : 'text-gray-300'}`}>
+                                <i className="fas fa-tablet-screen-button"></i> <span>Mesas</span>
                             </button>
-                            <button onClick={() => setActiveTab('kitchen')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium transition-all ${activeTab === 'kitchen' ? 'bg-orange-600 shadow-md' : 'text-gray-300'}`}>
-                                <i className="fas fa-fire-burner"></i> <span className="hidden sm:inline">Cocina</span>
+                            <button onClick={() => setActiveTab('kitchen')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium transition-all whitespace-nowrap ${activeTab === 'kitchen' ? 'bg-orange-600 shadow-md' : 'text-gray-300'}`}>
+                                <i className="fas fa-fire-burner"></i> <span>Cocina</span>
                                 {activeOrders.filter(o => o.status === 'pending').length > 0 && (
                                     <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full ml-1 animate-pulse">{activeOrders.filter(o => o.status === 'pending').length}</span>
                                 )}
                             </button>
-                            <button onClick={() => setActiveTab('admin')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium transition-all ${activeTab === 'admin' ? 'bg-orange-600 shadow-md' : 'text-gray-300'}`}>
-                                <i className="fas fa-chart-pie"></i> <span className="hidden sm:inline">Gestión</span>
+                            <button onClick={() => setActiveTab('checkout')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium transition-all whitespace-nowrap ${activeTab === 'checkout' ? 'bg-green-600 shadow-md text-white' : 'text-gray-300'}`}>
+                                <i className="fas fa-cash-register"></i> <span>Caja</span>
+                                {pendingPaymentOrders.filter(o => o.status === 'delivered').length > 0 && (
+                                    <span className="bg-yellow-400 text-yellow-900 text-xs px-2 py-0.5 rounded-full ml-1 font-bold animate-bounce">{pendingPaymentOrders.filter(o => o.status === 'delivered').length}</span>
+                                )}
+                            </button>
+                            <button onClick={() => setActiveTab('admin')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md font-medium transition-all whitespace-nowrap ${activeTab === 'admin' ? 'bg-orange-600 shadow-md' : 'text-gray-300'}`}>
+                                <i className="fas fa-chart-pie"></i> <span>Gestión</span>
                             </button>
                         </div>
                     </nav>
 
                     <main className="flex-1 overflow-hidden relative">
-                        {/* ==================== VISTA 1: POS ==================== */}
+                        
+                        {/* ==================== VISTA 1: POS (MESAS) ==================== */}
                         {activeTab === 'pos' && (
                             <div className="flex h-full bg-gray-50 relative">
                                 <div className="flex-1 flex flex-col h-full w-full">
@@ -370,9 +389,15 @@
                                     </div>
 
                                     <div className="p-4 border-b space-y-3 bg-gray-50 shrink-0">
-                                        <div className="flex items-center bg-white border-2 border-gray-200 rounded-xl px-3 py-2.5 focus-within:border-orange-500">
-                                            <i className="fas fa-hashtag text-gray-400 mr-2"></i>
-                                            <input type="text" placeholder="Número de Mesa" value={currentTable} onChange={(e) => setCurrentTable(e.target.value)} className="w-full outline-none bg-transparent font-bold"/>
+                                        <div className="flex gap-2">
+                                            <div className="flex-1 flex items-center bg-white border-2 border-gray-200 rounded-xl px-3 py-2.5 focus-within:border-orange-500">
+                                                <i className="fas fa-hashtag text-gray-400 mr-2"></i>
+                                                <input type="text" placeholder="Mesa" value={currentTable} onChange={(e) => setCurrentTable(e.target.value)} className="w-full outline-none bg-transparent font-bold" required/>
+                                            </div>
+                                            <div className="flex-1 flex items-center bg-white border-2 border-gray-200 rounded-xl px-3 py-2.5 focus-within:border-orange-500" title="Cantidad de personas (Pax)">
+                                                <i className="fas fa-users text-gray-400 mr-2"></i>
+                                                <input type="number" min="1" placeholder="Pax" value={currentGuests} onChange={(e) => setCurrentGuests(e.target.value)} className="w-full outline-none bg-transparent font-bold"/>
+                                            </div>
                                         </div>
                                         <div className="flex items-center bg-white border-2 border-gray-200 rounded-xl px-3 py-2.5 focus-within:border-orange-500">
                                             <i className="fas fa-user text-gray-400 mr-2"></i>
@@ -417,7 +442,7 @@
                                                 <span className="text-lg font-bold text-gray-500 leading-none">Q{(cartTotal * EXCHANGE_RATE).toFixed(2)}</span>
                                             </div>
                                         </div>
-                                        <button onClick={handleCheckout} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 shadow-lg">
+                                        <button onClick={handleSendToKitchen} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 shadow-lg">
                                             <i className="fas fa-bell"></i> Enviar a Cocina
                                         </button>
                                     </div>
@@ -430,7 +455,7 @@
                             <div className="p-4 sm:p-6 h-full overflow-y-auto bg-gray-100 pb-20">
                                 <div className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                                     <h2 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
-                                        <i className="fas fa-fire-burner text-orange-600"></i> Monitoreo KDS
+                                        <i className="fas fa-fire-burner text-orange-600"></i> Pantalla de Cocina (KDS)
                                     </h2>
                                     <div className="flex gap-2 sm:gap-4 overflow-x-auto pb-2 sm:pb-0">
                                         <span className="px-4 py-1.5 bg-red-100 text-red-800 rounded-full text-xs sm:text-sm font-bold shadow-sm border border-red-200">
@@ -445,7 +470,7 @@
                                 {activeOrders.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-64 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300 mx-4">
                                         <i className="fas fa-check-circle text-6xl mb-4 opacity-50 text-green-500"></i>
-                                        <p className="text-lg sm:text-xl font-medium text-center px-4">¡Excelente trabajo! No hay pedidos pendientes.</p>
+                                        <p className="text-lg sm:text-xl font-medium text-center px-4">¡Excelente trabajo! No hay pedidos para cocinar.</p>
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
@@ -489,8 +514,8 @@
                                                             </button>
                                                         )}
                                                         {order.status === 'ready' && (
-                                                            <button onClick={() => updateOrderStatus(order.id, 'delivered')} className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-lg font-bold shadow-md">
-                                                                <i className="fas fa-hand-holding-heart"></i> Entregar
+                                                            <button onClick={() => updateOrderStatus(order.id, 'delivered')} className="flex-1 bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-lg font-bold shadow-md">
+                                                                <i className="fas fa-hand-holding-heart"></i> Entregar a Mesa
                                                             </button>
                                                         )}
                                                     </div>
@@ -502,20 +527,96 @@
                             </div>
                         )}
 
-                        {/* ==================== VISTA 3: GESTIÓN (ADMIN) ==================== */}
+                        {/* ==================== VISTA 3: CAJA (CHECKOUT DEDICADO) ==================== */}
+                        {activeTab === 'checkout' && (
+                            <div className="p-4 sm:p-6 h-full overflow-y-auto bg-gray-100 pb-20">
+                                <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                    <h2 className="text-2xl sm:text-3xl font-black text-gray-800 flex items-center gap-3">
+                                        <i className="fas fa-cash-register text-green-600"></i> Punto de Cobro (Caja)
+                                    </h2>
+                                    <div className="text-sm font-bold text-gray-500 bg-white px-4 py-2 rounded-lg shadow-sm border">
+                                        Cuentas Activas: {pendingPaymentOrders.length}
+                                    </div>
+                                </div>
+
+                                {pendingPaymentOrders.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-64 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300 mx-4">
+                                        <i className="fas fa-receipt text-6xl mb-4 opacity-50 text-green-500"></i>
+                                        <p className="text-lg sm:text-xl font-medium text-center px-4">No hay mesas ocupadas ni cuentas pendientes.</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                                        {pendingPaymentOrders.map(order => {
+                                            const isReadyToPay = order.status === 'delivered';
+                                            return (
+                                                <div key={order.id} className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden flex flex-col ${isReadyToPay ? 'border-green-400 shadow-green-100' : 'border-gray-200'}`}>
+                                                    
+                                                    {/* Header de la cuenta */}
+                                                    <div className={`p-4 border-b flex justify-between items-center ${isReadyToPay ? 'bg-green-50' : 'bg-gray-50'}`}>
+                                                        <div>
+                                                            <h3 className="text-2xl font-black text-gray-800">Mesa {order.table}</h3>
+                                                            <div className="text-sm font-bold text-gray-500">{order.client} • {order.guests} Pax</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            {isReadyToPay ? (
+                                                                <span className="bg-green-200 text-green-800 px-3 py-1 rounded-full text-xs font-black animate-pulse"><i className="fas fa-check"></i> LISTO PARA COBRO</span>
+                                                            ) : (
+                                                                <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-bold"><i className="fas fa-utensils"></i> Comiendo/Esperando</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Lista de Consumo */}
+                                                    <div className="p-4 flex-1 overflow-y-auto max-h-48 bg-gray-50/30">
+                                                        <ul className="space-y-2">
+                                                            {order.items.map((item, idx) => (
+                                                                <li key={idx} className="flex justify-between text-sm font-bold text-gray-700 border-b border-gray-100 pb-1">
+                                                                    <span>{item.quantity}x {item.name}</span>
+                                                                    <span>${(item.price * item.quantity).toFixed(2)}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+
+                                                    {/* Footer de Cobro */}
+                                                    <div className="p-5 border-t bg-white">
+                                                        <div className="flex justify-between items-end mb-4">
+                                                            <span className="text-gray-500 font-black uppercase text-sm">Total a Pagar</span>
+                                                            <div className="text-right">
+                                                                <div className="text-3xl font-black text-green-600 leading-none mb-1">${order.total.toFixed(2)}</div>
+                                                                <div className="text-sm font-bold text-gray-400">Q{(order.total * EXCHANGE_RATE).toFixed(2)}</div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <button 
+                                                            onClick={() => processPayment(order.id)}
+                                                            className={`w-full py-4 rounded-xl font-black text-lg flex justify-center items-center gap-2 transition-all shadow-md active:scale-95 ${isReadyToPay ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                                                        >
+                                                            <i className="fas fa-cash-register"></i> Cobrar Cuenta
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ==================== VISTA 4: GESTIÓN (ADMIN) ==================== */}
                         {activeTab === 'admin' && (
                             <div className="p-4 sm:p-6 h-full overflow-y-auto bg-gray-50 pb-20">
                                 <div className="max-w-6xl mx-auto">
                                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 sm:mb-8 gap-4">
                                         <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 flex items-center gap-2 sm:gap-3">
-                                            <i className="fas fa-store text-orange-600"></i> Gestión General
+                                            <i className="fas fa-chart-pie text-orange-600"></i> Gestión General
                                         </h2>
                                         <div className="flex bg-white rounded-lg p-1.5 shadow-sm border overflow-x-auto w-full md:w-auto">
                                             <button onClick={() => setAdminTab('smed')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'smed' ? 'bg-orange-100 text-orange-800' : 'text-gray-500'}`}>
-                                                <i className="fas fa-stopwatch"></i> SMED
+                                                <i className="fas fa-stopwatch"></i> SMED (Ocupación)
                                             </button>
                                             <button onClick={() => setAdminTab('sales')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'sales' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
-                                                <i className="fas fa-cash-register"></i> Finanzas
+                                                <i className="fas fa-chart-line"></i> Finanzas
                                             </button>
                                             <button onClick={() => setAdminTab('expenses')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'expenses' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
                                                 <i className="fas fa-file-invoice-dollar"></i> Gastos
@@ -529,27 +630,25 @@
                                         </div>
                                     </div>
 
-                                    {/* --- SUB-VISTA: SMED --- */}
+                                    {/* --- SUB-VISTA: SMED (OCUPACIÓN) --- */}
                                     {adminTab === 'smed' && (
                                         <div className="space-y-6">
                                             <div className="bg-orange-600 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
-                                                <i className="fas fa-tachometer-alt absolute -right-4 -bottom-4 text-9xl opacity-10"></i>
-                                                <h3 className="text-2xl font-black mb-2">Panel de Eficiencia (SMED)</h3>
+                                                <i className="fas fa-users-cog absolute -right-4 -bottom-4 text-9xl opacity-10"></i>
+                                                <h3 className="text-2xl font-black mb-2">Análisis SMED & Ocupación de Mesas</h3>
+                                                <p className="font-medium opacity-90">Mide el tiempo exacto que una mesa está ocupada dependiendo de la cantidad de personas (Pax).</p>
                                             </div>
                                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                                                <div className="p-5 border-b bg-gray-50/50 flex justify-between items-center">
-                                                    <h3 className="font-bold text-gray-800 text-lg">Tiempos Registrados</h3>
-                                                </div>
                                                 <div className="overflow-x-auto">
                                                     <table className="w-full text-left border-collapse min-w-[800px]">
                                                         <thead className="bg-gray-50 text-gray-500 text-xs border-b">
                                                             <tr>
                                                                 <th className="p-4 font-bold uppercase">Mesa/ID</th>
+                                                                <th className="p-4 font-bold uppercase text-center">Pax (Personas)</th>
                                                                 <th className="p-4 font-bold uppercase text-center">Toma Pedido</th>
-                                                                <th className="p-4 font-bold uppercase text-center">Espera KDS</th>
                                                                 <th className="p-4 font-bold uppercase text-center">Preparación</th>
-                                                                <th className="p-4 font-bold uppercase text-center">Entrega</th>
-                                                                <th className="p-4 font-bold uppercase text-center bg-gray-100">Tiempo de Pago</th>
+                                                                <th className="p-4 font-bold uppercase text-center">Espera Pago</th>
+                                                                <th className="p-4 font-bold uppercase text-center bg-orange-50 text-orange-800">Ocupación Total</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
@@ -558,14 +657,15 @@
                                                             ) : (
                                                                 orders.filter(o => o.timestamps).map(order => {
                                                                     const t = order.timestamps;
+                                                                    const totalTime = t.paid ? formatTimeDiff(t.started, t.paid) : 'En curso...';
                                                                     return (
                                                                     <tr key={order.id} className="hover:bg-gray-50/80">
-                                                                        <td className="p-4"><div className="font-black text-gray-800">{order.table}</div><div className="text-xs text-gray-400">#{order.id}</div></td>
+                                                                        <td className="p-4 font-bold text-gray-800">Mesa {order.table} <span className="text-xs text-gray-400 block">#{order.id}</span></td>
+                                                                        <td className="p-4 text-center font-black text-gray-700 bg-gray-50">{order.guests || 1} <i className="fas fa-user text-gray-400 ml-1"></i></td>
                                                                         <td className="p-4 text-center font-bold text-blue-600">{formatTimeDiff(t.started, t.sent)}</td>
-                                                                        <td className="p-4 text-center font-bold text-red-500">{formatTimeDiff(t.sent, t.preparing)}</td>
                                                                         <td className="p-4 text-center font-bold text-orange-500">{formatTimeDiff(t.preparing, t.ready)}</td>
-                                                                        <td className="p-4 text-center font-bold text-yellow-600">{formatTimeDiff(t.ready, t.delivered)}</td>
-                                                                        <td className="p-4 text-center font-black text-green-600 bg-green-50/30">{formatTimeDiff(t.delivered, t.paid)}</td>
+                                                                        <td className="p-4 text-center font-bold text-green-600">{formatTimeDiff(t.delivered, t.paid)}</td>
+                                                                        <td className="p-4 text-center font-black text-orange-700 bg-orange-50/30">{totalTime}</td>
                                                                     </tr>
                                                                     )
                                                                 })
@@ -577,7 +677,7 @@
                                         </div>
                                     )}
 
-                                    {/* --- SUB-VISTA: VENTAS --- */}
+                                    {/* --- SUB-VISTA: FINANZAS --- */}
                                     {adminTab === 'sales' && (
                                         <div className="space-y-6">
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
@@ -607,55 +707,28 @@
                                                 </div>
                                             </div>
 
-                                            {deliveredOrders.length > 0 && (
-                                                <div className="bg-yellow-50 rounded-2xl border border-yellow-200 shadow-sm overflow-hidden">
-                                                    <div className="p-4 border-b border-yellow-200 bg-yellow-100">
-                                                        <h3 className="font-black text-yellow-800 text-lg"><i className="fas fa-exclamation-triangle"></i> Cuentas por Cobrar (Entregadas)</h3>
-                                                    </div>
-                                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                        {deliveredOrders.map(order => (
-                                                            <div key={order.id} className="bg-white p-4 rounded-xl border border-yellow-200 shadow-sm flex justify-between items-center">
-                                                                <div>
-                                                                    <div className="font-black text-lg">Mesa {order.table}</div>
-                                                                    <div className="text-sm text-gray-500">{order.client}</div>
-                                                                </div>
-                                                                <div className="text-right flex items-center gap-4">
-                                                                    <div>
-                                                                        <div className="font-black text-xl text-gray-800">${order.total.toFixed(2)}</div>
-                                                                        <div className="font-bold text-sm text-gray-500">Q{(order.total * EXCHANGE_RATE).toFixed(2)}</div>
-                                                                    </div>
-                                                                    <button onClick={() => updateOrderStatus(order.id, 'paid')} className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-lg font-black">
-                                                                        <i className="fas fa-cash-register"></i> Cobrar
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                                            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
                                                 <div className="p-5 border-b bg-gray-50/50">
-                                                    <h3 className="font-bold text-gray-800 text-lg">Historial de Ventas Pagadas</h3>
+                                                    <h3 className="font-bold text-gray-800 text-lg">Historial de Cuentas Pagadas</h3>
                                                 </div>
                                                 <div className="overflow-x-auto">
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 text-gray-500 text-sm border-b">
                                                             <tr>
                                                                 <th className="p-4 font-bold uppercase">ID Orden</th>
-                                                                <th className="p-4 font-bold uppercase">Cliente / Mesa</th>
+                                                                <th className="p-4 font-bold uppercase">Mesa & Cliente</th>
                                                                 <th className="p-4 font-bold uppercase">Total (USD)</th>
                                                                 <th className="p-4 font-bold uppercase">Total (QTZ)</th>
                                                             </tr>
                                                         </thead>
-                                                        <tbody className="divide-y divide-gray-100">
+                                                        <tbody className="divide-y">
                                                             {completedOrders.length === 0 ? (
                                                                 <tr><td colSpan="4" className="p-8 text-center text-gray-400">No hay ventas cobradas.</td></tr>
                                                             ) : (
                                                                 completedOrders.map(order => (
                                                                     <tr key={order.id} className="hover:bg-gray-50">
                                                                         <td className="p-4 font-bold">#{order.id}</td>
-                                                                        <td className="p-4 text-gray-600">{order.client} - {order.table}</td>
+                                                                        <td className="p-4 text-gray-600">Mesa {order.table} <span className="text-sm text-gray-400">({order.client})</span></td>
                                                                         <td className="p-4 font-black text-green-600">${order.total.toFixed(2)}</td>
                                                                         <td className="p-4 font-black text-gray-600">Q{(order.total * EXCHANGE_RATE).toFixed(2)}</td>
                                                                     </tr>
@@ -674,7 +747,7 @@
                                             <div className="bg-white rounded-2xl border shadow-sm p-6 relative overflow-hidden">
                                                 <div className="absolute top-0 left-0 w-2 h-full bg-red-500"></div>
                                                 <h3 className="font-bold text-gray-800 text-lg mb-5 flex items-center gap-2">
-                                                    <i className="fas fa-file-invoice-dollar text-red-600"></i> Nuevo Gasto Operativo
+                                                    <i className="fas fa-file-invoice-dollar text-red-600"></i> Registrar Gasto Operativo
                                                 </h3>
                                                 <form onSubmit={handleAddExpense} className="grid grid-cols-1 md:grid-cols-4 gap-5 items-end">
                                                     <div className="col-span-1 md:col-span-2">
@@ -690,7 +763,7 @@
                                                             </select>
                                                         </div>
                                                         <div className="w-2/3">
-                                                            <label className="block text-sm font-bold text-gray-600 mb-1.5">Monto Total</label>
+                                                            <label className="block text-sm font-bold text-gray-600 mb-1.5">Monto</label>
                                                             <input type="number" step="0.01" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-red-500" required />
                                                         </div>
                                                     </div>
@@ -704,8 +777,8 @@
                                                         </select>
                                                     </div>
                                                     <div className="col-span-1 md:col-span-1">
-                                                        <button type="submit" className="w-full bg-red-600 text-white font-black py-3 rounded-xl shadow-md">
-                                                            <i className="fas fa-plus"></i> Registrar Gasto
+                                                        <button type="submit" className="w-full bg-red-600 text-white font-black py-3 rounded-xl shadow-md active:scale-95">
+                                                            <i className="fas fa-plus"></i> Guardar
                                                         </button>
                                                     </div>
                                                 </form>
@@ -718,23 +791,19 @@
                                                             <th className="p-4 font-bold uppercase">Descripción</th>
                                                             <th className="p-4 font-bold uppercase">Categoría</th>
                                                             <th className="p-4 font-bold uppercase">Monto ($)</th>
-                                                            <th className="p-4 font-bold uppercase">Monto (Q)</th>
                                                             <th className="p-4 font-bold uppercase text-center">Eliminar</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y">
                                                         {expenses.length === 0 ? (
-                                                            <tr><td colSpan="5" className="p-8 text-center text-gray-400">No hay gastos.</td></tr>
+                                                            <tr><td colSpan="4" className="p-8 text-center text-gray-400">No hay gastos.</td></tr>
                                                         ) : expenses.map(exp => (
                                                             <tr key={exp.id} className="hover:bg-gray-50">
                                                                 <td className="p-4 font-bold">{exp.description}</td>
                                                                 <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{exp.category}</span></td>
                                                                 <td className="p-4 font-black text-red-600">${exp.amount.toFixed(2)}</td>
-                                                                <td className="p-4 font-black text-red-400">Q{(exp.amount * EXCHANGE_RATE).toFixed(2)}</td>
                                                                 <td className="p-4 text-center">
-                                                                    <button onClick={() => handleDeleteExpense(exp.id)} className="p-2.5 bg-red-50 text-red-600 rounded-lg">
-                                                                        <i className="fas fa-trash"></i>
-                                                                    </button>
+                                                                    <button onClick={() => handleDeleteExpense(exp.id)} className="p-2.5 bg-red-50 text-red-600 rounded-lg"><i className="fas fa-trash"></i></button>
                                                                 </td>
                                                             </tr>
                                                         ))}
