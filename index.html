@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FoodPOS Restaurante - Edición Lean/SMED</title>
+    <title>FoodPOS Restaurante - ERP Completo</title>
     
     <link id="manifest-link" rel="manifest" href="">
     <meta name="theme-color" content="#ea580c">
@@ -11,8 +11,12 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React y ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
@@ -30,8 +34,10 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        // --- TIPO DE CAMBIO FIJO ---
         const EXCHANGE_RATE = 8; // 8Q = $1
 
+        // --- CUSTOM HOOKS (Offline First) ---
         function useLocalStorage(key, initialValue) {
             const [storedValue, setStoredValue] = useState(() => {
                 try {
@@ -62,7 +68,7 @@
             { id: '5', name: 'Refresco Cola', price: 1.50, category: 'Bebidas', stock: 80, color: 'bg-red-100 text-red-800 border-red-200' },
         ];
 
-        // Helper para SMED: Formatear milisegundos a minutos y segundos
+        // Formatear milisegundos a minutos y segundos
         const formatTimeDiff = (start, end) => {
             if (!start || !end) return '-';
             const diffMs = new Date(end) - new Date(start);
@@ -73,23 +79,28 @@
         };
 
         function App() {
+            // Estados Globales
             const [activeTab, setActiveTab] = useState('pos');
-            const [menuItems, setMenuItems] = useLocalStorage('rest_menu_smed', DEFAULT_MENU);
-            const [orders, setOrders] = useLocalStorage('rest_orders_smed', []);
+            const [menuItems, setMenuItems] = useLocalStorage('rest_menu_final', DEFAULT_MENU);
+            const [orders, setOrders] = useLocalStorage('rest_orders_final', []);
+            const [expenses, setExpenses] = useLocalStorage('rest_expenses_final', []);
             
+            // Estados POS
             const [cart, setCart] = useState([]);
-            const [cartStartTime, setCartStartTime] = useState(null); // SMED: Inicia cronómetro del cliente
+            const [cartStartTime, setCartStartTime] = useState(null);
             const [currentTable, setCurrentTable] = useState('');
             const [currentClient, setCurrentClient] = useState('');
             const [activeCategory, setActiveCategory] = useState('Todos');
             const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
 
-            const [adminTab, setAdminTab] = useState('smed'); // sales, inventory, menu, smed
+            // Estados Admin
+            const [adminTab, setAdminTab] = useState('smed');
             const [newItem, setNewItem] = useState({ name: '', price: '', inputCurrency: 'Q', category: 'Comida', stock: 10 });
+            const [newExpense, setNewExpense] = useState({ description: '', amount: '', inputCurrency: 'Q', category: 'Servicios Básicos (Luz, Agua, Gas)' });
 
             useEffect(() => {
                 const manifest = {
-                    name: "FoodPOS Lean",
+                    name: "FoodPOS ERP",
                     short_name: "FoodPOS",
                     start_url: window.location.href,
                     display: "standalone",
@@ -101,15 +112,12 @@
                 document.getElementById('manifest-link').href = URL.createObjectURL(manifestBlob);
             }, []);
 
+            // Lógica POS
             const categories = ['Todos', ...new Set(menuItems.map(item => item.category))];
             const filteredMenu = activeCategory === 'Todos' ? menuItems : menuItems.filter(item => item.category === activeCategory);
 
             const addToCart = (item) => {
-                // SMED: Iniciar cronómetro si es el primer artículo
-                if (cart.length === 0 && !cartStartTime) {
-                    setCartStartTime(new Date().toISOString());
-                }
-
+                if (cart.length === 0 && !cartStartTime) setCartStartTime(new Date().toISOString());
                 setCart(prev => {
                     const existing = prev.find(i => i.id === item.id);
                     if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
@@ -137,23 +145,21 @@
                 if (!currentTable && !currentClient) return alert('Ingrese Mesa o Nombre del Cliente');
 
                 const now = new Date().toISOString();
-                
                 const newOrder = {
                     id: Math.random().toString(36).substr(2, 9),
                     table: currentTable || 'Llevar',
                     client: currentClient || 'Sin Nombre',
                     items: cart,
                     total: cartTotal,
-                    status: 'pending', // pending -> preparing -> ready -> delivered -> paid
+                    status: 'pending',
                     timestamp: now,
-                    // SMED MOTOR DE TIEMPOS
                     timestamps: {
-                        started: cartStartTime || now, // Tiempo que empezó a pedir
-                        sent: now,                     // Tiempo que se envió a cocina
-                        preparing: null,               // Cuando el chef empieza
-                        ready: null,                   // Cuando el chef termina
-                        delivered: null,               // Cuando el mesero lo entrega en mesa
-                        paid: null                     // Cuando el cajero cobra
+                        started: cartStartTime || now,
+                        sent: now,
+                        preparing: null,
+                        ready: null,
+                        delivered: null,
+                        paid: null
                     }
                 };
 
@@ -162,13 +168,10 @@
                 const updatedMenu = [...menuItems];
                 cart.forEach(cartItem => {
                     const menuIdx = updatedMenu.findIndex(m => m.id === cartItem.id);
-                    if (menuIdx >= 0) {
-                        updatedMenu[menuIdx].stock = Math.max(0, updatedMenu[menuIdx].stock - cartItem.quantity);
-                    }
+                    if (menuIdx >= 0) updatedMenu[menuIdx].stock = Math.max(0, updatedMenu[menuIdx].stock - cartItem.quantity);
                 });
                 setMenuItems(updatedMenu);
 
-                // Reset
                 setCart([]);
                 setCartStartTime(null);
                 setCurrentTable('');
@@ -177,12 +180,14 @@
                 alert('¡Pedido enviado a cocina!');
             };
 
+            // Lógica Cocina y Finanzas
             const activeOrders = orders.filter(o => o.status !== 'delivered' && o.status !== 'paid');
-            const deliveredOrders = orders.filter(o => o.status === 'delivered'); // Entregados, listos para cobrar
-            const completedOrders = orders.filter(o => o.status === 'paid');      // Pagados, venta finalizada
+            const deliveredOrders = orders.filter(o => o.status === 'delivered');
+            const completedOrders = orders.filter(o => o.status === 'paid');
             
-            // Calculamos ingresos basados en los pagados
             const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0);
+            const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+            const netProfit = totalRevenue - totalExpenses;
 
             const updateOrderStatus = (orderId, newStatus) => {
                 const now = new Date().toISOString();
@@ -190,7 +195,7 @@
                     if (o.id === orderId) {
                         const updatedOrder = { ...o, status: newStatus };
                         if (!updatedOrder.timestamps) updatedOrder.timestamps = {};
-                        updatedOrder.timestamps[newStatus] = now; // Guardar el timestamp exacto del evento
+                        updatedOrder.timestamps[newStatus] = now;
                         return updatedOrder;
                     }
                     return o;
@@ -202,6 +207,59 @@
                     if (item.id === id) return { ...item, stock: Math.max(0, item.stock + delta) };
                     return item;
                 }));
+            };
+
+            // Lógica Menú
+            const handleAddProduct = (e) => {
+                e.preventDefault();
+                if (!newItem.name || !newItem.price || !newItem.category) return;
+                
+                const inputVal = parseFloat(newItem.price);
+                const finalPriceUSD = newItem.inputCurrency === 'Q' ? inputVal / EXCHANGE_RATE : inputVal;
+                const colors = ['bg-purple-100 text-purple-800 border-purple-200', 'bg-teal-100 text-teal-800 border-teal-200', 'bg-indigo-100 text-indigo-800 border-indigo-200'];
+
+                setMenuItems([...menuItems, {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name: newItem.name,
+                    price: finalPriceUSD,
+                    category: newItem.category,
+                    stock: parseInt(newItem.stock) || 0,
+                    color: colors[Math.floor(Math.random() * colors.length)]
+                }]);
+                setNewItem({ name: '', price: '', inputCurrency: 'Q', category: 'Comida', stock: 10 });
+                alert("¡Producto agregado exitosamente!");
+            };
+
+            const handleDeleteProduct = (id) => {
+                if(window.confirm("¿Seguro que deseas eliminar este producto?")) {
+                    setMenuItems(prev => prev.filter(item => item.id !== id));
+                }
+            };
+
+            // Lógica Gastos
+            const handleAddExpense = (e) => {
+                e.preventDefault();
+                if (!newExpense.description || !newExpense.amount) return;
+                
+                const inputVal = parseFloat(newExpense.amount);
+                const finalAmountUSD = newExpense.inputCurrency === 'Q' ? inputVal / EXCHANGE_RATE : inputVal;
+
+                setExpenses([{
+                    id: Math.random().toString(36).substr(2, 9),
+                    description: newExpense.description,
+                    amount: finalAmountUSD,
+                    category: newExpense.category,
+                    date: new Date().toISOString()
+                }, ...expenses]);
+                
+                setNewExpense({ description: '', amount: '', inputCurrency: 'Q', category: 'Servicios Básicos (Luz, Agua, Gas)' });
+                alert("¡Gasto registrado exitosamente!");
+            };
+
+            const handleDeleteExpense = (id) => {
+                if(window.confirm("¿Eliminar este gasto?")) {
+                    setExpenses(prev => prev.filter(e => e.id !== id));
+                }
             };
 
             const getStatusColor = (status) => {
@@ -238,7 +296,7 @@
                     </nav>
 
                     <main className="flex-1 overflow-hidden relative">
-                        {/* ==================== POS ==================== */}
+                        {/* ==================== VISTA 1: POS ==================== */}
                         {activeTab === 'pos' && (
                             <div className="flex h-full bg-gray-50 relative">
                                 <div className="flex-1 flex flex-col h-full w-full">
@@ -320,12 +378,6 @@
                                             <i className="fas fa-user text-gray-400 mr-2"></i>
                                             <input type="text" placeholder="Nombre del Cliente" value={currentClient} onChange={(e) => setCurrentClient(e.target.value)} className="w-full outline-none bg-transparent font-bold"/>
                                         </div>
-                                        {/* Indicador visual de tiempo de pedido para SMED */}
-                                        {cartStartTime && (
-                                            <div className="text-xs text-orange-600 font-bold text-center bg-orange-100 rounded p-1">
-                                                <i className="fas fa-stopwatch"></i> Cronómetro iniciado
-                                            </div>
-                                        )}
                                     </div>
 
                                     <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
@@ -373,7 +425,7 @@
                             </div>
                         )}
 
-                        {/* ==================== KDS (COCINA) ==================== */}
+                        {/* ==================== VISTA 2: COCINA ==================== */}
                         {activeTab === 'kitchen' && (
                             <div className="p-4 sm:p-6 h-full overflow-y-auto bg-gray-100 pb-20">
                                 <div className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
@@ -381,10 +433,10 @@
                                         <i className="fas fa-fire-burner text-orange-600"></i> Monitoreo KDS
                                     </h2>
                                     <div className="flex gap-2 sm:gap-4 overflow-x-auto pb-2 sm:pb-0">
-                                        <span className="px-4 py-1.5 bg-red-100 text-red-800 rounded-full text-xs sm:text-sm font-bold shadow-sm border border-red-200 whitespace-nowrap">
+                                        <span className="px-4 py-1.5 bg-red-100 text-red-800 rounded-full text-xs sm:text-sm font-bold shadow-sm border border-red-200">
                                             Pendientes: {activeOrders.filter(o=>o.status==='pending').length}
                                         </span>
-                                        <span className="px-4 py-1.5 bg-yellow-100 text-yellow-800 rounded-full text-xs sm:text-sm font-bold shadow-sm border border-yellow-200 whitespace-nowrap">
+                                        <span className="px-4 py-1.5 bg-yellow-100 text-yellow-800 rounded-full text-xs sm:text-sm font-bold shadow-sm border border-yellow-200">
                                             En Proceso: {activeOrders.filter(o=>o.status==='preparing').length}
                                         </span>
                                     </div>
@@ -399,7 +451,6 @@
                                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
                                         {activeOrders.map(order => {
                                             const timeString = new Date(order.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                                            
                                             return (
                                                 <div key={order.id} className={`flex flex-col rounded-xl border-2 shadow-md overflow-hidden ${getStatusColor(order.status)}`}>
                                                     <div className={`p-4 border-b-2 flex justify-between items-center ${getStatusColor(order.status).replace('text-', 'border-').replace('50', '200')}`}>
@@ -428,18 +479,18 @@
 
                                                     <div className="p-3 bg-white border-t flex gap-2">
                                                         {order.status === 'pending' && (
-                                                            <button onClick={() => updateOrderStatus(order.id, 'preparing')} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-lg font-bold shadow-md sm:text-lg">
-                                                                Empezar a Preparar
+                                                            <button onClick={() => updateOrderStatus(order.id, 'preparing')} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white py-3 rounded-lg font-bold shadow-md">
+                                                                Preparar
                                                             </button>
                                                         )}
                                                         {order.status === 'preparing' && (
-                                                            <button onClick={() => updateOrderStatus(order.id, 'ready')} className="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-bold shadow-md sm:text-lg">
-                                                                <i className="fas fa-check-circle"></i> ¡Pedido Listo!
+                                                            <button onClick={() => updateOrderStatus(order.id, 'ready')} className="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-bold shadow-md">
+                                                                <i className="fas fa-check-circle"></i> ¡Listo!
                                                             </button>
                                                         )}
                                                         {order.status === 'ready' && (
-                                                            <button onClick={() => updateOrderStatus(order.id, 'delivered')} className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-lg font-bold shadow-md sm:text-lg">
-                                                                <i className="fas fa-hand-holding-heart"></i> Entregar a Mesa
+                                                            <button onClick={() => updateOrderStatus(order.id, 'delivered')} className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-lg font-bold shadow-md">
+                                                                <i className="fas fa-hand-holding-heart"></i> Entregar
                                                             </button>
                                                         )}
                                                     </div>
@@ -451,7 +502,7 @@
                             </div>
                         )}
 
-                        {/* ==================== ADMIN & SMED ==================== */}
+                        {/* ==================== VISTA 3: GESTIÓN (ADMIN) ==================== */}
                         {activeTab === 'admin' && (
                             <div className="p-4 sm:p-6 h-full overflow-y-auto bg-gray-50 pb-20">
                                 <div className="max-w-6xl mx-auto">
@@ -460,59 +511,56 @@
                                             <i className="fas fa-store text-orange-600"></i> Gestión General
                                         </h2>
                                         <div className="flex bg-white rounded-lg p-1.5 shadow-sm border overflow-x-auto w-full md:w-auto">
-                                            <button onClick={() => setAdminTab('smed')} className={`flex items-center gap-2 px-4 py-2 sm:py-2.5 rounded-md font-bold transition-colors whitespace-nowrap ${adminTab === 'smed' ? 'bg-orange-100 text-orange-800' : 'text-gray-500'}`}>
-                                                <i className="fas fa-stopwatch"></i> Eficiencia SMED
+                                            <button onClick={() => setAdminTab('smed')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'smed' ? 'bg-orange-100 text-orange-800' : 'text-gray-500'}`}>
+                                                <i className="fas fa-stopwatch"></i> SMED
                                             </button>
-                                            <button onClick={() => setAdminTab('sales')} className={`flex items-center gap-2 px-4 py-2 sm:py-2.5 rounded-md font-bold transition-colors whitespace-nowrap ${adminTab === 'sales' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
-                                                <i className="fas fa-cash-register"></i> Cobros & Ventas
+                                            <button onClick={() => setAdminTab('sales')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'sales' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
+                                                <i className="fas fa-cash-register"></i> Finanzas
                                             </button>
-                                            <button onClick={() => setAdminTab('inventory')} className={`flex items-center gap-2 px-4 py-2 sm:py-2.5 rounded-md font-bold transition-colors whitespace-nowrap ${adminTab === 'inventory' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
+                                            <button onClick={() => setAdminTab('expenses')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'expenses' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
+                                                <i className="fas fa-file-invoice-dollar"></i> Gastos
+                                            </button>
+                                            <button onClick={() => setAdminTab('inventory')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'inventory' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
                                                 <i className="fas fa-box"></i> Stock
                                             </button>
-                                            <button onClick={() => setAdminTab('menu')} className={`flex items-center gap-2 px-4 py-2 sm:py-2.5 rounded-md font-bold transition-colors whitespace-nowrap ${adminTab === 'menu' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
+                                            <button onClick={() => setAdminTab('menu')} className={`flex items-center gap-2 px-4 py-2 rounded-md font-bold whitespace-nowrap ${adminTab === 'menu' ? 'bg-gray-900 text-white' : 'text-gray-500'}`}>
                                                 <i className="fas fa-list"></i> Menú
                                             </button>
                                         </div>
                                     </div>
 
-                                    {/* --- NUEVA PESTAÑA: EFICIENCIA SMED --- */}
+                                    {/* --- SUB-VISTA: SMED --- */}
                                     {adminTab === 'smed' && (
                                         <div className="space-y-6">
                                             <div className="bg-orange-600 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
                                                 <i className="fas fa-tachometer-alt absolute -right-4 -bottom-4 text-9xl opacity-10"></i>
-                                                <h3 className="text-2xl font-black mb-2">Panel de Eficiencia Operativa (SMED)</h3>
-                                                <p className="font-medium opacity-90">Análisis en tiempo real de los cuellos de botella desde que el cliente piensa su pedido hasta que paga.</p>
+                                                <h3 className="text-2xl font-black mb-2">Panel de Eficiencia (SMED)</h3>
                                             </div>
-
                                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                                                 <div className="p-5 border-b bg-gray-50/50 flex justify-between items-center">
-                                                    <h3 className="font-bold text-gray-800 text-lg">Tiempos Registrados por Pedido</h3>
-                                                    <span className="text-xs font-bold bg-blue-100 text-blue-800 px-3 py-1 rounded-full">Automático</span>
+                                                    <h3 className="font-bold text-gray-800 text-lg">Tiempos Registrados</h3>
                                                 </div>
                                                 <div className="overflow-x-auto">
                                                     <table className="w-full text-left border-collapse min-w-[800px]">
                                                         <thead className="bg-gray-50 text-gray-500 text-xs border-b">
                                                             <tr>
-                                                                <th className="p-4 font-bold uppercase tracking-wider">Mesa/ID</th>
-                                                                <th className="p-4 font-bold uppercase tracking-wider text-center" title="Desde el primer toque en menú hasta 'Enviar a Cocina'">Toma Pedido<br/>(Elección)</th>
-                                                                <th className="p-4 font-bold uppercase tracking-wider text-center" title="Desde enviado hasta que chef presiona 'Preparar'">Espera KDS<br/>(Reacción)</th>
-                                                                <th className="p-4 font-bold uppercase tracking-wider text-center" title="Desde 'Preparar' hasta '¡Listo!'">Preparación<br/>(Cocina)</th>
-                                                                <th className="p-4 font-bold uppercase tracking-wider text-center" title="Desde '¡Listo!' hasta ser Entregado">Entrega<br/>(Mesero)</th>
-                                                                <th className="p-4 font-bold uppercase tracking-wider text-center bg-gray-100" title="Desde 'Entregado' hasta 'Cobrar'">Tiempo de Pago<br/>(Caja)</th>
+                                                                <th className="p-4 font-bold uppercase">Mesa/ID</th>
+                                                                <th className="p-4 font-bold uppercase text-center">Toma Pedido</th>
+                                                                <th className="p-4 font-bold uppercase text-center">Espera KDS</th>
+                                                                <th className="p-4 font-bold uppercase text-center">Preparación</th>
+                                                                <th className="p-4 font-bold uppercase text-center">Entrega</th>
+                                                                <th className="p-4 font-bold uppercase text-center bg-gray-100">Tiempo de Pago</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
                                                             {orders.filter(o => o.timestamps).length === 0 ? (
-                                                                <tr><td colSpan="6" className="p-8 text-center text-gray-400 font-medium">No hay pedidos con registro de tiempo aún.</td></tr>
+                                                                <tr><td colSpan="6" className="p-8 text-center text-gray-400 font-medium">Sin registros aún.</td></tr>
                                                             ) : (
                                                                 orders.filter(o => o.timestamps).map(order => {
                                                                     const t = order.timestamps;
                                                                     return (
-                                                                    <tr key={order.id} className="hover:bg-gray-50/80 transition-colors">
-                                                                        <td className="p-4">
-                                                                            <div className="font-black text-gray-800">{order.table}</div>
-                                                                            <div className="text-xs text-gray-400">#{order.id}</div>
-                                                                        </td>
+                                                                    <tr key={order.id} className="hover:bg-gray-50/80">
+                                                                        <td className="p-4"><div className="font-black text-gray-800">{order.table}</div><div className="text-xs text-gray-400">#{order.id}</div></td>
                                                                         <td className="p-4 text-center font-bold text-blue-600">{formatTimeDiff(t.started, t.sent)}</td>
                                                                         <td className="p-4 text-center font-bold text-red-500">{formatTimeDiff(t.sent, t.preparing)}</td>
                                                                         <td className="p-4 text-center font-bold text-orange-500">{formatTimeDiff(t.preparing, t.ready)}</td>
@@ -529,38 +577,39 @@
                                         </div>
                                     )}
 
-                                    {/* --- VENTAS Y COBROS --- */}
+                                    {/* --- SUB-VISTA: VENTAS --- */}
                                     {adminTab === 'sales' && (
                                         <div className="space-y-6">
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
                                                 <div className="bg-white p-5 rounded-2xl border border-green-100 shadow-sm flex items-center gap-5">
-                                                    <div className="p-3 bg-green-100 text-green-600 rounded-xl"><i className="fas fa-dollar-sign text-2xl"></i></div>
+                                                    <div className="p-3 bg-green-100 text-green-600 rounded-xl"><i className="fas fa-arrow-up text-2xl"></i></div>
                                                     <div>
-                                                        <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Caja Fuerte (Pagado)</p>
-                                                        <p className="text-2xl font-black text-gray-800 leading-none mb-1">${totalRevenue.toFixed(2)}</p>
+                                                        <p className="text-gray-500 text-xs font-bold uppercase">Ingreso Bruto</p>
+                                                        <p className="text-2xl font-black leading-none mb-1">${totalRevenue.toFixed(2)}</p>
                                                         <p className="text-sm font-bold text-gray-500">Q{(totalRevenue * EXCHANGE_RATE).toFixed(2)}</p>
                                                     </div>
                                                 </div>
-                                                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
-                                                    <div className="p-3 bg-blue-100 text-blue-600 rounded-xl"><i className="fas fa-receipt text-2xl"></i></div>
+                                                <div className="bg-white p-5 rounded-2xl border border-red-100 shadow-sm flex items-center gap-5">
+                                                    <div className="p-3 bg-red-100 text-red-600 rounded-xl"><i className="fas fa-arrow-down text-2xl"></i></div>
                                                     <div>
-                                                        <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Cuentas Abiertas</p>
-                                                        <p className="text-2xl font-black text-gray-800">{deliveredOrders.length}</p>
+                                                        <p className="text-gray-500 text-xs font-bold uppercase">Gastos / Costos</p>
+                                                        <p className="text-2xl font-black leading-none mb-1">${totalExpenses.toFixed(2)}</p>
+                                                        <p className="text-sm font-bold text-gray-500">Q{(totalExpenses * EXCHANGE_RATE).toFixed(2)}</p>
                                                     </div>
                                                 </div>
-                                                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-5">
-                                                    <div className="p-3 bg-orange-100 text-orange-600 rounded-xl"><i className="fas fa-utensils text-2xl"></i></div>
+                                                <div className={`bg-white p-5 rounded-2xl border shadow-sm flex items-center gap-5 ${netProfit >= 0 ? 'border-blue-100' : 'border-red-100'}`}>
+                                                    <div className={`p-3 rounded-xl ${netProfit >= 0 ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}><i className="fas fa-wallet text-2xl"></i></div>
                                                     <div>
-                                                        <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Ventas Finalizadas</p>
-                                                        <p className="text-2xl font-black text-gray-800 leading-none mb-1">{completedOrders.length}</p>
+                                                        <p className="text-gray-500 text-xs font-bold uppercase">Utilidad Neta</p>
+                                                        <p className="text-2xl font-black leading-none mb-1">${netProfit.toFixed(2)}</p>
+                                                        <p className="text-sm font-bold text-gray-500">Q{(netProfit * EXCHANGE_RATE).toFixed(2)}</p>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            {/* SECCIÓN DE COBRO DE MESAS (NUEVO) */}
                                             {deliveredOrders.length > 0 && (
                                                 <div className="bg-yellow-50 rounded-2xl border border-yellow-200 shadow-sm overflow-hidden">
-                                                    <div className="p-4 border-b border-yellow-200 bg-yellow-100 flex justify-between items-center">
+                                                    <div className="p-4 border-b border-yellow-200 bg-yellow-100">
                                                         <h3 className="font-black text-yellow-800 text-lg"><i className="fas fa-exclamation-triangle"></i> Cuentas por Cobrar (Entregadas)</h3>
                                                     </div>
                                                     <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -575,7 +624,7 @@
                                                                         <div className="font-black text-xl text-gray-800">${order.total.toFixed(2)}</div>
                                                                         <div className="font-bold text-sm text-gray-500">Q{(order.total * EXCHANGE_RATE).toFixed(2)}</div>
                                                                     </div>
-                                                                    <button onClick={() => updateOrderStatus(order.id, 'paid')} className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-lg font-black shadow-md">
+                                                                    <button onClick={() => updateOrderStatus(order.id, 'paid')} className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-lg font-black">
                                                                         <i className="fas fa-cash-register"></i> Cobrar
                                                                     </button>
                                                                 </div>
@@ -590,27 +639,25 @@
                                                     <h3 className="font-bold text-gray-800 text-lg">Historial de Ventas Pagadas</h3>
                                                 </div>
                                                 <div className="overflow-x-auto">
-                                                    <table className="w-full text-left border-collapse">
+                                                    <table className="w-full text-left">
                                                         <thead className="bg-gray-50 text-gray-500 text-sm border-b">
                                                             <tr>
                                                                 <th className="p-4 font-bold uppercase">ID Orden</th>
                                                                 <th className="p-4 font-bold uppercase">Cliente / Mesa</th>
                                                                 <th className="p-4 font-bold uppercase">Total (USD)</th>
                                                                 <th className="p-4 font-bold uppercase">Total (QTZ)</th>
-                                                                <th className="p-4 font-bold uppercase text-center">Estado</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-100">
                                                             {completedOrders.length === 0 ? (
-                                                                <tr><td colSpan="5" className="p-8 text-center text-gray-400 font-medium">No hay ventas cobradas aún.</td></tr>
+                                                                <tr><td colSpan="4" className="p-8 text-center text-gray-400">No hay ventas cobradas.</td></tr>
                                                             ) : (
                                                                 completedOrders.map(order => (
-                                                                    <tr key={order.id} className="hover:bg-gray-50/80 transition-colors">
-                                                                        <td className="p-4 font-bold text-gray-800">#{order.id}</td>
-                                                                        <td className="p-4 text-gray-600 font-medium">{order.client} - {order.table}</td>
+                                                                    <tr key={order.id} className="hover:bg-gray-50">
+                                                                        <td className="p-4 font-bold">#{order.id}</td>
+                                                                        <td className="p-4 text-gray-600">{order.client} - {order.table}</td>
                                                                         <td className="p-4 font-black text-green-600">${order.total.toFixed(2)}</td>
                                                                         <td className="p-4 font-black text-gray-600">Q{(order.total * EXCHANGE_RATE).toFixed(2)}</td>
-                                                                        <td className="p-4 text-center"><span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-black"><i className="fas fa-check"></i> Pagado</span></td>
                                                                     </tr>
                                                                 ))
                                                             )}
@@ -621,45 +668,73 @@
                                         </div>
                                     )}
 
-                                    {/* --- INVENTARIO --- */}
-                                    {adminTab === 'inventory' && (
-                                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                                            <div className="p-5 border-b bg-gray-50/50">
-                                                <h3 className="font-bold text-gray-800 text-lg">Control Rápido de Stock</h3>
+                                    {/* --- SUB-VISTA: GASTOS --- */}
+                                    {adminTab === 'expenses' && (
+                                        <div className="space-y-6">
+                                            <div className="bg-white rounded-2xl border shadow-sm p-6 relative overflow-hidden">
+                                                <div className="absolute top-0 left-0 w-2 h-full bg-red-500"></div>
+                                                <h3 className="font-bold text-gray-800 text-lg mb-5 flex items-center gap-2">
+                                                    <i className="fas fa-file-invoice-dollar text-red-600"></i> Nuevo Gasto Operativo
+                                                </h3>
+                                                <form onSubmit={handleAddExpense} className="grid grid-cols-1 md:grid-cols-4 gap-5 items-end">
+                                                    <div className="col-span-1 md:col-span-2">
+                                                        <label className="block text-sm font-bold text-gray-600 mb-1.5">Descripción</label>
+                                                        <input type="text" value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-red-500" required />
+                                                    </div>
+                                                    <div className="col-span-1 md:col-span-2 flex gap-2">
+                                                        <div className="w-1/3">
+                                                            <label className="block text-sm font-bold text-gray-600 mb-1.5">Moneda</label>
+                                                            <select value={newExpense.inputCurrency} onChange={e => setNewExpense({...newExpense, inputCurrency: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-red-500 font-bold">
+                                                                <option value="Q">Q</option>
+                                                                <option value="USD">$</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="w-2/3">
+                                                            <label className="block text-sm font-bold text-gray-600 mb-1.5">Monto Total</label>
+                                                            <input type="number" step="0.01" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-red-500" required />
+                                                        </div>
+                                                    </div>
+                                                    <div className="col-span-1 md:col-span-3">
+                                                        <label className="block text-sm font-bold text-gray-600 mb-1.5">Categoría</label>
+                                                        <select value={newExpense.category} onChange={e => setNewExpense({...newExpense, category: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-red-500 font-bold">
+                                                            <option value="Servicios Básicos (Luz, Agua, Gas)">Servicios Básicos (Luz, Agua, Gas)</option>
+                                                            <option value="Insumos (Comida)">Insumos (Comida)</option>
+                                                            <option value="Planilla / Salarios">Planilla / Salarios</option>
+                                                            <option value="Otros Gastos">Otros Gastos</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-1 md:col-span-1">
+                                                        <button type="submit" className="w-full bg-red-600 text-white font-black py-3 rounded-xl shadow-md">
+                                                            <i className="fas fa-plus"></i> Registrar Gasto
+                                                        </button>
+                                                    </div>
+                                                </form>
                                             </div>
-                                            <div className="overflow-x-auto">
+
+                                            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
                                                 <table className="w-full text-left">
                                                     <thead className="bg-gray-50 text-gray-500 text-sm border-b">
                                                         <tr>
-                                                            <th className="p-4 font-bold uppercase tracking-wider">Producto</th>
-                                                            <th className="p-4 font-bold uppercase tracking-wider text-center">Stock Actual</th>
-                                                            <th className="p-4 font-bold uppercase tracking-wider text-center">Ajustar Stock</th>
+                                                            <th className="p-4 font-bold uppercase">Descripción</th>
+                                                            <th className="p-4 font-bold uppercase">Categoría</th>
+                                                            <th className="p-4 font-bold uppercase">Monto ($)</th>
+                                                            <th className="p-4 font-bold uppercase">Monto (Q)</th>
+                                                            <th className="p-4 font-bold uppercase text-center">Eliminar</th>
                                                         </tr>
                                                     </thead>
-                                                    <tbody className="divide-y divide-gray-100">
-                                                        {menuItems.map(item => (
-                                                            <tr key={item.id} className={`hover:bg-gray-50/80 transition-colors ${item.stock <= 5 ? 'bg-red-50/30' : ''}`}>
-                                                                <td className="p-4 font-bold text-gray-800 flex items-center gap-2">
-                                                                    {item.stock <= 5 && <i className="fas fa-exclamation-circle text-red-500"></i>}
-                                                                    {item.name}
-                                                                </td>
+                                                    <tbody className="divide-y">
+                                                        {expenses.length === 0 ? (
+                                                            <tr><td colSpan="5" className="p-8 text-center text-gray-400">No hay gastos.</td></tr>
+                                                        ) : expenses.map(exp => (
+                                                            <tr key={exp.id} className="hover:bg-gray-50">
+                                                                <td className="p-4 font-bold">{exp.description}</td>
+                                                                <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{exp.category}</span></td>
+                                                                <td className="p-4 font-black text-red-600">${exp.amount.toFixed(2)}</td>
+                                                                <td className="p-4 font-black text-red-400">Q{(exp.amount * EXCHANGE_RATE).toFixed(2)}</td>
                                                                 <td className="p-4 text-center">
-                                                                    <span className={`text-xl font-black ${item.stock <= 5 ? 'text-red-600' : 'text-gray-800'}`}>
-                                                                        {item.stock}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="p-4">
-                                                                    <div className="flex items-center justify-center gap-2">
-                                                                        <button onClick={() => handleStockUpdate(item.id, -1)} className="p-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 transition-colors active:scale-90 shadow-sm">
-                                                                            <i className="fas fa-minus text-sm"></i>
-                                                                        </button>
-                                                                        <button onClick={() => handleStockUpdate(item.id, 1)} className="p-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 transition-colors active:scale-90 shadow-sm">
-                                                                            <i className="fas fa-plus text-sm"></i>
-                                                                        </button>
-                                                                        <button onClick={() => handleStockUpdate(item.id, 10)} className="px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded-lg text-orange-700 text-sm font-black transition-colors active:scale-90 shadow-sm">
-                                                                            +10
-                                                                        </button>
-                                                                    </div>
+                                                                    <button onClick={() => handleDeleteExpense(exp.id)} className="p-2.5 bg-red-50 text-red-600 rounded-lg">
+                                                                        <i className="fas fa-trash"></i>
+                                                                    </button>
                                                                 </td>
                                                             </tr>
                                                         ))}
@@ -669,10 +744,46 @@
                                         </div>
                                     )}
 
-                                    {/* --- MENÚ --- */}
+                                    {/* --- SUB-VISTA: INVENTARIO --- */}
+                                    {adminTab === 'inventory' && (
+                                        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                                            <div className="p-5 border-b bg-gray-50/50">
+                                                <h3 className="font-bold text-gray-800 text-lg">Control Rápido de Stock</h3>
+                                            </div>
+                                            <table className="w-full text-left">
+                                                <thead className="bg-gray-50 text-gray-500 text-sm border-b">
+                                                    <tr>
+                                                        <th className="p-4 font-bold uppercase">Producto</th>
+                                                        <th className="p-4 font-bold uppercase text-center">Stock Actual</th>
+                                                        <th className="p-4 font-bold uppercase text-center">Ajustar</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y">
+                                                    {menuItems.map(item => (
+                                                        <tr key={item.id} className={`hover:bg-gray-50 ${item.stock <= 5 ? 'bg-red-50/30' : ''}`}>
+                                                            <td className="p-4 font-bold flex items-center gap-2">
+                                                                {item.stock <= 5 && <i className="fas fa-exclamation-circle text-red-500"></i>}
+                                                                {item.name}
+                                                            </td>
+                                                            <td className="p-4 text-center">
+                                                                <span className={`text-xl font-black ${item.stock <= 5 ? 'text-red-600' : 'text-gray-800'}`}>{item.stock}</span>
+                                                            </td>
+                                                            <td className="p-4 text-center">
+                                                                <button onClick={() => handleStockUpdate(item.id, -1)} className="p-2 bg-gray-100 rounded-lg mx-1"><i className="fas fa-minus text-sm"></i></button>
+                                                                <button onClick={() => handleStockUpdate(item.id, 1)} className="p-2 bg-gray-100 rounded-lg mx-1"><i className="fas fa-plus text-sm"></i></button>
+                                                                <button onClick={() => handleStockUpdate(item.id, 10)} className="px-3 py-2 bg-orange-100 text-orange-700 font-black rounded-lg mx-1">+10</button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+
+                                    {/* --- SUB-VISTA: MENÚ --- */}
                                     {adminTab === 'menu' && (
                                         <div className="space-y-6">
-                                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
+                                            <div className="bg-white rounded-2xl border shadow-sm p-6 relative overflow-hidden">
                                                 <div className="absolute top-0 left-0 w-2 h-full bg-orange-500"></div>
                                                 <h3 className="font-bold text-gray-800 text-lg mb-5 flex items-center gap-2">
                                                     <i className="fas fa-plus text-orange-600"></i> Crear Nuevo Botón
@@ -680,67 +791,62 @@
                                                 <form onSubmit={handleAddProduct} className="grid grid-cols-1 md:grid-cols-4 gap-5 items-end">
                                                     <div className="col-span-1 md:col-span-2">
                                                         <label className="block text-sm font-bold text-gray-600 mb-1.5">Nombre</label>
-                                                        <input type="text" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500 bg-white font-medium" placeholder="Ej. Tacos al Pastor" required />
+                                                        <input type="text" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500" required />
                                                     </div>
                                                     <div className="col-span-1 md:col-span-2 flex gap-2">
                                                         <div className="w-1/3">
                                                             <label className="block text-sm font-bold text-gray-600 mb-1.5">Moneda</label>
-                                                            <select value={newItem.inputCurrency} onChange={e => setNewItem({...newItem, inputCurrency: e.target.value})} className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500 bg-white font-bold text-gray-800">
-                                                                <option value="Q">Q (Quetzal)</option>
-                                                                <option value="USD">$ (Dólar)</option>
+                                                            <select value={newItem.inputCurrency} onChange={e => setNewItem({...newItem, inputCurrency: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500 font-bold">
+                                                                <option value="Q">Q</option>
+                                                                <option value="USD">$</option>
                                                             </select>
                                                         </div>
                                                         <div className="w-2/3">
                                                             <label className="block text-sm font-bold text-gray-600 mb-1.5">Precio</label>
-                                                            <input type="number" step="0.01" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500 bg-white font-medium" placeholder="0.00" required />
+                                                            <input type="number" step="0.01" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500" required />
                                                         </div>
                                                     </div>
                                                     <div className="col-span-1 md:col-span-2">
                                                         <label className="block text-sm font-bold text-gray-600 mb-1.5">Categoría</label>
-                                                        <input type="text" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500 bg-white font-medium" placeholder="Ej. Bebidas" required />
+                                                        <input type="text" value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500" required />
                                                     </div>
                                                     <div className="col-span-1 md:col-span-1">
-                                                        <label className="block text-sm font-bold text-gray-600 mb-1.5">Stock</label>
-                                                        <input type="number" value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500 bg-white font-medium" required />
+                                                        <label className="block text-sm font-bold text-gray-600 mb-1.5">Stock Inicial</label>
+                                                        <input type="number" value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} className="w-full border-2 rounded-xl px-4 py-2.5 outline-none focus:border-orange-500" required />
                                                     </div>
                                                     <div className="col-span-1 md:col-span-1">
-                                                        <button type="submit" className="w-full bg-gray-900 hover:bg-black text-white font-black py-3 rounded-xl shadow-md active:scale-95 flex justify-center gap-2">
+                                                        <button type="submit" className="w-full bg-gray-900 text-white font-black py-3 rounded-xl shadow-md">
                                                             <i className="fas fa-save"></i> Guardar
                                                         </button>
                                                     </div>
                                                 </form>
                                             </div>
 
-                                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                                                <div className="p-5 border-b bg-gray-50/50">
-                                                    <h3 className="font-bold text-gray-800 text-lg">Botones Actuales</h3>
-                                                </div>
-                                                <div className="overflow-x-auto">
-                                                    <table className="w-full text-left">
-                                                        <thead className="bg-gray-50 text-gray-500 text-sm border-b">
-                                                            <tr>
-                                                                <th className="p-4 font-bold uppercase">Producto</th>
-                                                                <th className="p-4 font-bold uppercase">Precio ($)</th>
-                                                                <th className="p-4 font-bold uppercase">Precio (Q)</th>
-                                                                <th className="p-4 font-bold uppercase text-center">Eliminar</th>
+                                            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                                                <table className="w-full text-left">
+                                                    <thead className="bg-gray-50 text-gray-500 text-sm border-b">
+                                                        <tr>
+                                                            <th className="p-4 font-bold uppercase">Producto</th>
+                                                            <th className="p-4 font-bold uppercase">Precio ($)</th>
+                                                            <th className="p-4 font-bold uppercase">Precio (Q)</th>
+                                                            <th className="p-4 font-bold uppercase text-center">Eliminar</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y">
+                                                        {menuItems.map(item => (
+                                                            <tr key={item.id} className="hover:bg-gray-50">
+                                                                <td className="p-4 font-bold text-gray-800">{item.name}</td>
+                                                                <td className="p-4 font-black text-gray-600">${item.price.toFixed(2)}</td>
+                                                                <td className="p-4 font-black text-orange-600">Q{(item.price * EXCHANGE_RATE).toFixed(2)}</td>
+                                                                <td className="p-4 text-center">
+                                                                    <button onClick={() => handleDeleteProduct(item.id)} className="p-2.5 bg-red-50 text-red-600 rounded-lg shadow-sm">
+                                                                        <i className="fas fa-trash"></i>
+                                                                    </button>
+                                                                </td>
                                                             </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-gray-100">
-                                                            {menuItems.map(item => (
-                                                                <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
-                                                                    <td className="p-4 font-bold text-gray-800">{item.name}</td>
-                                                                    <td className="p-4 font-black text-gray-600">${item.price.toFixed(2)}</td>
-                                                                    <td className="p-4 font-black text-orange-600">Q{(item.price * EXCHANGE_RATE).toFixed(2)}</td>
-                                                                    <td className="p-4 text-center">
-                                                                        <button onClick={() => handleDeleteProduct(item.id)} className="p-2.5 bg-red-50 hover:bg-red-500 text-red-600 hover:text-white rounded-lg shadow-sm">
-                                                                            <i className="fas fa-trash"></i>
-                                                                        </button>
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </div>
                                     )}
